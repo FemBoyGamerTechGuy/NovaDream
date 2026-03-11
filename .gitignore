@@ -1,0 +1,12 @@
+/target/
+dist/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.log
