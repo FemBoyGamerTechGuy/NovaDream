@@ -13,6 +13,11 @@ fn covers_dir() -> PathBuf {
     novadream_data_dir().join("covers")
 }
 
+/// Returns the expected cover path for a given sanitised title key
+pub fn cover_path_for_title(title_key: &str) -> PathBuf {
+    covers_dir().join(format!("{}.jpg", title_key))
+}
+
 /// Load persisted local games from disk
 pub fn load_local_games() -> Vec<Game> {
     let path = library_path();
@@ -38,11 +43,14 @@ pub fn save_local_games(games: &[Game]) {
 /// Tries SteamGridDB (no key needed for basic search via their public grid)
 /// and falls back to a Steam CDN search.
 /// Returns the local path where the image was saved, or None on failure.
-pub fn fetch_cover(game_title: &str, game_id: &str) -> Option<PathBuf> {
+pub fn fetch_cover(game_title: &str, _game_id: &str) -> Option<PathBuf> {
     let covers = covers_dir();
     let _ = std::fs::create_dir_all(&covers);
 
-    let dest = covers.join(format!("{}.jpg", game_id));
+    // Key covers by sanitised title so re-adding the same game reuses the existing file
+    let safe_title = crate::config::sanitise_title(game_title);
+    let key = if safe_title.is_empty() { _game_id.to_string() } else { safe_title };
+    let dest = covers.join(format!("{}.jpg", key));
     if dest.exists() { return Some(dest); }
 
     // Try Steam search first — free, no API key

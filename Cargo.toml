@@ -16,11 +16,13 @@ gdk-pixbuf      = "0.22"
 glib            = "0.22"
 ksni            = { version = "0.3", features = ["blocking"] }
 tokio           = { version = "1", features = ["full"] }
-reqwest         = { version = "0.13", features = ["json", "stream"] }
+reqwest         = { version = "0.13", features = ["json", "stream", "blocking"] }
+tar             = "0.4"
 serde           = { version = "1", features = ["derive"] }
 serde_json      = "1"
 dirs            = "6"
 anyhow          = "1"
+libc             = "0.2"
 
 [profile.release]
 opt-level     = 3
@@ -29,9 +31,53 @@ lto           = true
 codegen-units = 1
 
 [package.metadata.deb]
-maintainer = "FemBoyGamerTechGuy"
-depends    = "libgtk-4-1, libayatana-appindicator3-1"
-section    = "games"
+maintainer  = "FemBoyGamerTechGuy"
+license-file = ["LICENSE", "0"]
+extended-description = """\
+NovaDream is a native Linux game launcher with multi-store support. \
+Launch Windows games via Wine or Proton-GE, manage your Steam, Epic, \
+GOG, Itch.io, and local game libraries from one place."""
+depends     = "libgtk-4-1 (>= 4.12), libglib2.0-0, libayatana-appindicator3-1"
+section     = "games"
+priority    = "optional"
+assets = [
+    # Binary
+    ["target/release/NovaDream", "usr/bin/NovaDream", "755"],
+    # Desktop entry
+    ["assets/desktop/io.github.FemBoyGamerTechGuy.NovaDream.desktop",
+     "usr/share/applications/io.github.FemBoyGamerTechGuy.NovaDream.desktop", "644"],
+    # AppStream metainfo
+    ["assets/io.github.FemBoyGamerTechGuy.NovaDream.metainfo.xml",
+     "usr/share/metainfo/io.github.FemBoyGamerTechGuy.NovaDream.metainfo.xml", "644"],
+    # Icons
+    ["assets/icons/hicolor/16x16/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/16x16/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+    ["assets/icons/hicolor/32x32/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/32x32/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+    ["assets/icons/hicolor/48x48/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/48x48/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+    ["assets/icons/hicolor/64x64/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/64x64/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+    ["assets/icons/hicolor/128x128/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/128x128/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+    ["assets/icons/hicolor/256x256/apps/io.github.FemBoyGamerTechGuy.NovaDream.png",
+     "usr/share/icons/hicolor/256x256/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", "644"],
+]
 
 [package.metadata.generate-rpm]
-requires = [{ name = "gtk4" }, { name = "libayatana-appindicator" }]
+assets = [
+    { source = "target/release/NovaDream", dest = "/usr/bin/NovaDream", mode = "755" },
+    { source = "assets/desktop/io.github.FemBoyGamerTechGuy.NovaDream.desktop", dest = "/usr/share/applications/io.github.FemBoyGamerTechGuy.NovaDream.desktop", mode = "644" },
+    { source = "assets/io.github.FemBoyGamerTechGuy.NovaDream.metainfo.xml", dest = "/usr/share/metainfo/io.github.FemBoyGamerTechGuy.NovaDream.metainfo.xml", mode = "644" },
+    { source = "assets/icons/hicolor/16x16/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/16x16/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+    { source = "assets/icons/hicolor/32x32/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/32x32/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+    { source = "assets/icons/hicolor/48x48/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+    { source = "assets/icons/hicolor/64x64/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+    { source = "assets/icons/hicolor/128x128/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+    { source = "assets/icons/hicolor/256x256/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.github.FemBoyGamerTechGuy.NovaDream.png", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+gtk4 = "*"
+glib2 = "*"
+libayatana-appindicator-gtk3 = "*"

@@ -25,6 +25,7 @@ pub fn show_add_game_dialog(
         .default_width(480)
         .build();
     dialog.add_css_class("add-game-dialog");
+    dialog.add_css_class("novadream");
 
     let vbox = GtkBox::new(Orientation::Vertical, 14);
     vbox.set_margin_top(24);
@@ -120,6 +121,9 @@ pub fn show_add_game_dialog(
             let dialog = FileDialog::builder()
                 .title("Select Executable")
                 .default_filter(&filter)
+                .initial_folder(&gtk4::gio::File::for_path(
+                    dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("/"))
+                ))
                 .build();
             let e = entry.clone();
             dialog.open(Some(&par), gtk4::gio::Cancellable::NONE, move |res| {
@@ -192,7 +196,8 @@ pub fn show_add_game_dialog(
             };
 
             let runner = if launch_mode == LaunchMode::Windows && !runners.is_empty() {
-                runners.get(r_drop.selected() as usize).map(|r| r.name.clone())
+                runners.get(r_drop.selected() as usize)
+                    .map(|r| r.binary().to_string_lossy().to_string())
             } else {
                 None
             };
@@ -210,6 +215,7 @@ pub fn show_add_game_dialog(
                 installed:    true,
                 play_time:    0,
                 last_played:  None,
+                ..Default::default()
             };
 
             *res.borrow_mut() = Some(game);

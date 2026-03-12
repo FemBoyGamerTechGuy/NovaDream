@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=NovaDream
+GenericName=Game Launcher
+Comment=A dreamy multi-store game launcher
+Exec=NovaDream %U
+Icon=io.github.FemBoyGamerTechGuy.NovaDream
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=games;launcher;steam;epic;gog;itch;wine;proton;
+StartupNotify=true
+StartupWMClass=NovaDream

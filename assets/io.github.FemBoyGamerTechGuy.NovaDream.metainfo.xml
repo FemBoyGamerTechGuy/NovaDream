@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.FemBoyGamerTechGuy.NovaDream</id>
+  <name>NovaDream</name>
+  <summary>A dreamy multi-store game launcher</summary>
+  <description>
+    <p>
+      NovaDream is a native Linux game launcher with multi-store support.
+      It supports local games, Steam, Epic Games, GOG, and Itch.io libraries,
+      with Wine and Proton-GE runner management built in.
+    </p>
+    <ul>
+      <li>Launch Windows games via Wine or Proton-GE/UMU</li>
+      <li>Multi-store library (Steam, Epic, GOG, Itch.io, Local)</li>
+      <li>Per-game runner, prefix, and launch configuration</li>
+      <li>Wine-Wayland native rendering support</li>
+      <li>MangoHud and GameMode integration</li>
+      <li>System tray support</li>
+    </ul>
+  </description>
+  <metadata_license>MIT</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.FemBoyGamerTechGuy">
+    <name>FemBoyGamerTechGuy</name>
+  </developer>
+  <launchable type="desktop-id">io.github.FemBoyGamerTechGuy.NovaDream.desktop</launchable>
+  <url type="homepage">https://github.com/FemBoyGamerTechGuy/NovaDream</url>
+  <url type="bugtracker">https://github.com/FemBoyGamerTechGuy/NovaDream/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-03-11">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

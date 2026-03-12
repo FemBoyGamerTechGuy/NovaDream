@@ -61,12 +61,49 @@ pub struct Game {
     pub cover_url:    Option<String>,
     pub cover_path:   Option<String>,
     pub install_path: Option<String>,
-    pub exe_path:     Option<String>,     // for local games
+    pub exe_path:     Option<String>,
     pub launch_mode:  LaunchMode,
-    pub runner:       Option<String>,     // Wine/Proton runner name override
+    pub runner:       Option<String>,     // per-game runner override
     pub installed:    bool,
-    pub play_time:    u64,                // seconds
-    pub last_played:  Option<i64>,        // unix timestamp
+    pub play_time:    u64,
+    pub last_played:  Option<i64>,
+
+    // ── Per-game overrides ────────────────────────────────────────
+    #[serde(default)]
+    pub wine_prefix:  Option<String>,     // custom WINEPREFIX for this game
+
+    #[serde(default)]
+    pub launch_args:  Option<String>,     // extra launch arguments
+
+    #[serde(default)]
+    pub env_vars:     Option<String>,     // KEY=VAL pairs, newline separated
+
+    #[serde(default)]
+    pub work_dir:     Option<String>,     // working directory override
+
+    #[serde(default)]
+    pub pre_launch:   Option<String>,     // script to run before launch
+
+    #[serde(default)]
+    pub post_exit:    Option<String>,     // script to run after exit
+
+    #[serde(default)]
+    pub notes:        Option<String>,     // user notes
+
+    #[serde(default)]
+    pub hidden:       bool,               // hide from library
+
+    #[serde(default)]
+    pub favorite:     bool,               // pin to top
+
+    #[serde(default)]
+    pub use_mangohud: bool,               // wrap launch with mangohud
+
+    #[serde(default)]
+    pub use_gamemode: bool,               // wrap launch with gamemoderun
+
+    #[serde(default)]
+    pub use_wine_wayland: bool,           // use wine-wayland driver for this game
 }
 
 impl Game {
@@ -92,6 +129,37 @@ impl Game {
                 else if diff < 604800 { format!("{}d ago", diff / 86400) }
                 else                  { format!("{}w ago", diff / 604800) }
             }
+        }
+    }
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self {
+            id:           String::new(),
+            title:        String::new(),
+            store:        Store::Local,
+            cover_url:    None,
+            cover_path:   None,
+            install_path: None,
+            exe_path:     None,
+            launch_mode:  LaunchMode::Linux,
+            runner:       None,
+            installed:    false,
+            play_time:    0,
+            last_played:  None,
+            wine_prefix:  None,
+            launch_args:  None,
+            env_vars:     None,
+            work_dir:     None,
+            pre_launch:   None,
+            post_exit:    None,
+            notes:        None,
+            hidden:       false,
+            favorite:     false,
+            use_mangohud: false,
+            use_gamemode: false,
+            use_wine_wayland: false,
         }
     }
 }

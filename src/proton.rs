@@ -37,7 +37,10 @@ impl Runner {
     }
 }
 
-/// Scan NovaDream's own proton/ folder for installed runners
+/// Scan NovaDream's runners folders for installed runners.
+/// Folder layout:
+///   ~/.local/share/NovaDream/proton/<name>/   — Proton builds (e.g. Proton-GE)
+///   ~/.local/share/NovaDream/wine/<name>/     — Wine builds
 pub fn detect_runners(novadream_data_dir: &PathBuf) -> Vec<Runner> {
     let mut runners = vec![];
 
@@ -50,23 +53,32 @@ pub fn detect_runners(novadream_data_dir: &PathBuf) -> Vec<Runner> {
         });
     }
 
-    // Scan NovaDream/proton/
+    // Scan NovaDream/proton/ — everything here is Proton
     let proton_dir = novadream_data_dir.join("proton");
     if proton_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(&proton_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if !path.is_dir() { continue; }
-
                 let name = path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-
-                // Detect if it's Proton (has a 'proton' binary) or Wine (has bin/wine)
+                    .unwrap_or_default().to_string_lossy().to_string();
                 if path.join("proton").exists() {
                     runners.push(Runner { name, kind: RunnerKind::Proton, path });
-                } else if path.join("bin/wine").exists() {
+                }
+            }
+        }
+    }
+
+    // Scan NovaDream/wine/ — everything here is Wine
+    let wine_dir = novadream_data_dir.join("wine");
+    if wine_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(&wine_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() { continue; }
+                let name = path.file_name()
+                    .unwrap_or_default().to_string_lossy().to_string();
+                if path.join("bin/wine").exists() {
                     runners.push(Runner { name, kind: RunnerKind::Wine, path });
                 }
             }

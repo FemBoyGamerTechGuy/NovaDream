@@ -15,6 +15,8 @@ use crate::proton::detect_runners;
 use crate::stores::{EpicStore, GogStore, SteamStore, ItchStore, StoreBackend};
 use crate::ui::library::LibraryView;
 use crate::ui::settings::SettingsPanel;
+use crate::ui::game_defaults::GameDefaultsPanel;
+use crate::ui::store::StorePanel;
 
 pub fn build_ui(app: &Application, cfg: Config) {
     let cfg = Rc::new(RefCell::new(cfg));
@@ -22,6 +24,11 @@ pub fn build_ui(app: &Application, cfg: Config) {
     // ── Detect runners ───────────────────────────────────────────────────────
     let data_dir = novadream_data_dir();
     let runners  = detect_runners(&data_dir);
+
+    // Ensure expected data directories exist
+    for subdir in &["proton", "wine", "covers", "prefixes"] {
+        let _ = std::fs::create_dir_all(data_dir.join(subdir));
+    }
 
     // ── Store backends ───────────────────────────────────────────────────────
     let epic  = Rc::new(RefCell::new(EpicStore::new()));
@@ -36,6 +43,7 @@ pub fn build_ui(app: &Application, cfg: Config) {
         .default_width(1340)
         .default_height(820)
         .build();
+    window.add_css_class("novadream");
 
     // ── Header bar ──────────────────────────────────────────────────────────
     let header = HeaderBar::new();
@@ -61,9 +69,19 @@ pub fn build_ui(app: &Application, cfg: Config) {
     notebook.append_page(&library.widget, Some(&lib_tab_lbl));
 
     // Settings tab
-    let settings = SettingsPanel::new(cfg.clone(), runners.clone());
+    let settings = SettingsPanel::new(cfg.clone());
     let set_tab_lbl = Label::new(Some("⚙  Settings"));
     notebook.append_page(&settings.widget, Some(&set_tab_lbl));
+
+    // Game Defaults tab
+    let game_defaults = GameDefaultsPanel::new(cfg.clone(), runners.clone());
+    let gd_tab_lbl = Label::new(Some("🎮  Game Defaults"));
+    notebook.append_page(&game_defaults.widget, Some(&gd_tab_lbl));
+
+    // Store tab
+    let store = StorePanel::new();
+    let store_tab_lbl = Label::new(Some("🛒  Store"));
+    notebook.append_page(&store.widget, Some(&store_tab_lbl));
 
     // Sidebar — gets library + notebook so Add Game can push directly in
     let sidebar = build_sidebar(
@@ -91,8 +109,14 @@ pub fn build_ui(app: &Application, cfg: Config) {
             let local = crate::local_library::load_local_games();
 
             // Re-fetch cover if the file is missing (deleted/moved)
+            // Also checks the title-keyed path in case the game was re-added
             let games_needing_covers: Vec<(String, String)> = local.iter()
                 .filter(|g| {
+                    let title_key = crate::config::sanitise_title(&g.title);
+                    let title_path = crate::local_library::cover_path_for_title(&title_key);
+                    // Already have a title-keyed cover — no fetch needed
+                    if title_path.exists() { return false; }
+                    // Fall back to checking whatever path is stored in the game entry
                     match &g.cover_path {
                         Some(p) => !std::path::Path::new(p).exists(),
                         None    => true,
@@ -154,6 +178,10 @@ pub fn build_ui(app: &Application, cfg: Config) {
             });
         }
     }
+
+    // Give library access to window + runners so the per-game settings dialog can open
+    library.set_window(window.clone());
+    library.set_runners(runners.clone());
 
     window.present();
 }
@@ -255,7 +283,11 @@ fn build_sidebar(
     ] {
         let btn = Button::with_label(label);
         btn.add_css_class("sidebar-btn");
-        let _ = store; // TODO: wire to library filter
+        let lib2 = library.clone();
+        let store_val = store.map(|s| s.to_string());
+        btn.connect_clicked(move |_| {
+            lib2.set_store_filter(store_val.clone());
+        });
         sidebar.append(&btn);
     }
 
@@ -417,24 +449,16 @@ fn theme_css(name: &str) -> String {
     };
 
     format!(r#"
-/* Force all labels and text to use theme color — prevents system bleed */
-label, entry, text {{ color: {text}; background-color: transparent; }}
-label * {{ background-color: transparent; }}
-flowbox, listbox {{ background-color: transparent; }}
-flowboxchild {{
-    background-color: transparent;
-    border: none;
-    padding: 0;
-    outline: none;
-}}
-flowboxchild:selected,
-flowboxchild:focus,
-flowboxchild:hover {{
-    background-color: transparent;
-    outline: none;
-}}
-flowboxchild,
-.transparent-child {{
+/* ── NovaDream — Cosmic UI ───────────────────────────────────────────────── */
+/* Scope to NovaDream windows only — prevents bleed into file chooser portal */
+window.novadream label,
+window.novadream entry,
+window.novadream text {{ color: {text}; background-color: transparent; }}
+window.novadream label * {{ background-color: transparent; }}
+window.novadream flowbox,
+window.novadream listbox {{ background-color: transparent; }}
+window.novadream flowboxchild,
+window.novadream .transparent-child {{
     background-color: transparent;
     border: none;
     padding: 0;
@@ -442,14 +466,14 @@ flowboxchild,
     outline: none;
     box-shadow: none;
 }}
-flowboxchild:selected,
-flowboxchild:focus,
-flowboxchild:hover,
-flowboxchild:active,
-.transparent-child:selected,
-.transparent-child:focus,
-.transparent-child:hover,
-.transparent-child:active {{
+window.novadream flowboxchild:selected,
+window.novadream flowboxchild:focus,
+window.novadream flowboxchild:hover,
+window.novadream flowboxchild:active,
+window.novadream .transparent-child:selected,
+window.novadream .transparent-child:focus,
+window.novadream .transparent-child:hover,
+window.novadream .transparent-child:active {{
     background-color: transparent;
     box-shadow: none;
     outline: none;
@@ -467,336 +491,386 @@ flowboxchild:active,
 .game-card .btn-stop {{ background: #c0392b; }}
 .game-card .btn-install {{ background: alpha({accent}, 0.12); }}
 .game-card .card-remove-btn {{ background: transparent; }}
+
+/* ── Base ────────────────────────────────────────────────────────── */
 window, .background, widget, box, scrolledwindow, viewport {{
     background-color: {base};
     color: {text};
-    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
+    font-family: "Outfit", "Rubik", "Noto Sans", sans-serif;
     font-size: 14px;
 }}
 window, .background {{
     background-color: {base};
     color: {text};
-    font-family: "JetBrainsMono Nerd Font", "Noto Sans", sans-serif;
-    font-size: 14px;
 }}
+
+/* ── Header bar ──────────────────────────────────────────────────── */
 headerbar {{
-    background-color: {surface};
+    background: linear-gradient(180deg, alpha({accent}, 0.08) 0%, {surface} 100%);
     color: {text};
-    border-bottom: 1px solid alpha({accent}, 0.2);
-    box-shadow: none;
-    min-height: 50px;
-    padding: 0 8px;
+    border-bottom: 1px solid alpha({accent}, 0.25);
+    box-shadow: 0 2px 20px alpha(black, 0.4);
+    min-height: 54px;
+    padding: 0 12px;
 }}
 .header-title {{
-    font-size: 16px;
-    font-weight: bold;
+    font-size: 17px;
+    font-weight: 800;
     color: {accent};
-    letter-spacing: 0.5px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
 }}
+
 /* ── Sidebar ─────────────────────────────────────────────────────── */
 .sidebar {{
-    background-color: {surface};
+    background: linear-gradient(180deg, alpha({accent}, 0.04) 0%, {surface} 60%);
+    border-right: 1px solid alpha({accent}, 0.12);
 }}
 .sidebar-title {{
     color: {accent};
-    font-size: 16px;
-    font-weight: bold;
-    padding: 4px 10px 4px 10px;
+    font-size: 18px;
+    font-weight: 900;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    padding: 8px 12px 4px 12px;
 }}
 .sidebar-section {{
     color: {muted};
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 1.5px;
-    padding: 10px 10px 4px 10px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    padding: 14px 12px 5px 12px;
 }}
 .sidebar-btn {{
     background: transparent;
-    color: {text};
+    color: alpha({text}, 0.75);
     border: none;
-    border-radius: 8px;
-    padding: 7px 12px;
+    border-radius: 10px;
+    padding: 8px 14px;
     font-size: 13px;
-    min-height: 34px;
+    font-weight: 500;
+    min-height: 36px;
+    transition: all 150ms;
 }}
 .sidebar-btn:hover {{
-    background-color: alpha({accent}, 0.12);
-    color: {accent};
+    background: linear-gradient(90deg, alpha({accent}, 0.15), alpha({accent}, 0.05));
+    color: {text};
+    border-left: 3px solid {accent};
+    padding-left: 11px;
 }}
 .sidebar-btn:active {{
-    background-color: alpha({accent}, 0.2);
+    background: alpha({accent}, 0.22);
 }}
 .add-game-btn {{
-    background: alpha({accent}, 0.18);
+    background: linear-gradient(135deg, alpha({accent}, 0.25), alpha({accent}, 0.12));
     color: {accent};
-    border: 1px solid alpha({accent}, 0.3);
-    border-radius: 8px;
-    padding: 8px 12px;
-    font-weight: bold;
+    border: 1px solid alpha({accent}, 0.35);
+    border-radius: 10px;
+    padding: 9px 14px;
+    font-weight: 700;
     font-size: 13px;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 12px alpha({accent}, 0.15);
 }}
 .add-game-btn:hover {{
-    background: alpha({accent}, 0.28);
+    background: linear-gradient(135deg, alpha({accent}, 0.35), alpha({accent}, 0.2));
     border-color: {accent};
+    box-shadow: 0 4px 20px alpha({accent}, 0.3);
 }}
 .account-ok {{
     color: {green};
 }}
-/* ── Notebook ────────────────────────────────────────────────────── */
+
+/* ── Notebook tabs ───────────────────────────────────────────────── */
 .main-notebook > header {{
-    background-color: {surface};
-    border-bottom: 1px solid alpha({accent}, 0.15);
-    padding: 0 8px;
+    background: {surface};
+    border-bottom: 1px solid alpha({accent}, 0.18);
+    padding: 0 10px;
 }}
 .main-notebook > header > tabs > tab {{
     color: {muted};
-    padding: 10px 20px;
+    padding: 11px 22px;
     font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    border-bottom: 2px solid transparent;
 }}
 .main-notebook > header > tabs > tab:checked {{
     color: {accent};
     border-bottom: 2px solid {accent};
+    background: linear-gradient(180deg, transparent, alpha({accent}, 0.06));
 }}
+
 /* ── Library toolbar ─────────────────────────────────────────────── */
 .library-toolbar {{
-    background-color: {surface2};
-    border-bottom: 1px solid alpha({accent}, 0.1);
-    padding: 8px 16px;
+    background: linear-gradient(180deg, {surface2}, alpha({surface2}, 0.7));
+    border-bottom: 1px solid alpha({accent}, 0.12);
+    padding: 10px 18px;
 }}
 .view-toggle {{
-    background: alpha({accent}, 0.08);
+    background: alpha({accent}, 0.06);
     color: {muted};
-    border: 1px solid alpha({accent}, 0.15);
-    border-radius: 6px;
-    padding: 4px 14px;
+    border: 1px solid alpha({accent}, 0.18);
+    border-radius: 8px;
+    padding: 5px 16px;
     font-size: 12px;
-    min-height: 30px;
+    min-height: 32px;
+    font-weight: 500;
 }}
 .view-toggle:checked {{
-    background: alpha({accent}, 0.22);
+    background: alpha({accent}, 0.2);
     color: {accent};
-    border-color: alpha({accent}, 0.4);
+    border-color: alpha({accent}, 0.45);
+    box-shadow: 0 0 10px alpha({accent}, 0.15);
 }}
+
 /* ── Game cards ──────────────────────────────────────────────────── */
 .game-card {{
-    background-color: {surface};
-    border-radius: 12px;
-    border: 1px solid alpha({accent}, 0.12);
-    transition: border-color 120ms, box-shadow 120ms;
+    background: linear-gradient(160deg, alpha({accent}, 0.06) 0%, {surface} 60%);
+    border-radius: 14px;
+    border: 1px solid alpha({accent}, 0.14);
+    box-shadow: 0 4px 24px alpha(black, 0.3);
+    transition: all 180ms;
 }}
 .game-card:hover {{
-    border-color: alpha({accent}, 0.45);
-    box-shadow: 0 6px 24px alpha(black, 0.4);
+    border-color: alpha({accent}, 0.55);
+    box-shadow: 0 8px 32px alpha({accent}, 0.2), 0 0 0 1px alpha({accent}, 0.08);
 }}
 .cover-placeholder {{
-    background: linear-gradient(160deg, alpha({accent}, 0.15), alpha({surface}, 0.95));
+    background: linear-gradient(160deg, alpha({accent}, 0.18) 0%, alpha({surface}, 0.9) 100%);
     min-height: 220px;
-    border-radius: 12px 12px 0 0;
+    border-radius: 14px 14px 0 0;
 }}
 .cover-image {{
     min-height: 220px;
-    border-radius: 12px 12px 0 0;
+    border-radius: 14px 14px 0 0;
 }}
 .card-info {{
-    padding: 10px 8px 6px 8px;
-    border-radius: 0 0 12px 12px;
+    padding: 10px 10px 6px 10px;
+    border-radius: 0 0 14px 14px;
+    background: linear-gradient(transparent, alpha(black, 0.88));
 }}
 .card-title {{
     font-size: 13px;
-    font-weight: bold;
+    font-weight: 700;
     color: white;
+    letter-spacing: 0.2px;
 }}
 .card-meta {{
     font-size: 11px;
-    color: alpha(white, 0.65);
+    color: alpha(white, 0.6);
 }}
 .store-badge {{
     font-size: 10px;
-    font-weight: bold;
+    font-weight: 700;
     color: {accent};
-    background: alpha({accent}, 0.18);
-    border-radius: 4px;
-    padding: 1px 6px;
+    background: alpha({accent}, 0.2);
+    border-radius: 5px;
+    padding: 2px 7px;
     margin-bottom: 2px;
+    letter-spacing: 0.5px;
 }}
 .btn-play {{
-    background: {accent};
+    background: linear-gradient(135deg, {accent}, alpha({accent}, 0.75));
     color: {base};
     border: none;
-    border-radius: 0 0 12px 12px;
-    font-weight: bold;
-    padding: 7px;
+    border-radius: 0 0 14px 14px;
+    font-weight: 700;
+    padding: 8px;
     font-size: 13px;
-    transition: background 100ms;
+    letter-spacing: 0.5px;
+    box-shadow: 0 -2px 12px alpha({accent}, 0.2);
 }}
-.btn-play:hover {{ background: alpha({accent}, 0.8); }}
+.btn-play:hover {{
+    background: linear-gradient(135deg, alpha({accent}, 0.9), alpha({accent}, 0.65));
+    box-shadow: 0 -2px 20px alpha({accent}, 0.4);
+}}
 .btn-stop {{
-    background: #c0392b;
+    background: linear-gradient(135deg, #c0392b, #96281b);
     color: white;
     border: none;
-    border-radius: 0 0 12px 12px;
-    font-weight: bold;
-    padding: 7px;
+    border-radius: 0 0 14px 14px;
+    font-weight: 700;
+    padding: 8px;
     font-size: 13px;
-    transition: background 100ms;
 }}
-.btn-stop:hover {{ background: #e74c3c; }}
+.btn-stop:hover {{ background: linear-gradient(135deg, #e74c3c, #c0392b); }}
 .btn-install {{
-    background: alpha({accent}, 0.12);
+    background: alpha({accent}, 0.1);
     color: {accent};
     border: none;
-    border-radius: 0 0 12px 12px;
-    padding: 7px;
+    border-radius: 0 0 14px 14px;
+    padding: 8px;
     font-size: 13px;
+    font-weight: 600;
 }}
-.btn-install:hover {{ background: alpha({accent}, 0.22); }}
+.btn-install:hover {{ background: alpha({accent}, 0.2); }}
 .btn-play-small {{
-    background: {accent};
+    background: linear-gradient(135deg, {accent}, alpha({accent}, 0.8));
     color: {base};
     border: none;
-    border-radius: 6px;
-    font-weight: bold;
-    padding: 5px 14px;
+    border-radius: 8px;
+    font-weight: 700;
+    padding: 5px 16px;
     font-size: 12px;
 }}
-.btn-play-small:hover {{ background: alpha({accent}, 0.8); }}
+.btn-play-small:hover {{ background: linear-gradient(135deg, alpha({accent}, 0.9), alpha({accent}, 0.7)); }}
 .btn-install-small {{
-    background: alpha({accent}, 0.12);
+    background: alpha({accent}, 0.1);
     color: {accent};
     border: none;
-    border-radius: 6px;
-    padding: 5px 14px;
+    border-radius: 8px;
+    padding: 5px 16px;
     font-size: 12px;
+    font-weight: 600;
 }}
-.btn-install-small:hover {{ background: alpha({accent}, 0.22); }}
+.btn-install-small:hover {{ background: alpha({accent}, 0.2); }}
+
 /* ── Remove button ───────────────────────────────────────────────── */
 .card-remove-btn {{
-    background: alpha(red, 0.0);
-    color: alpha(white, 0.55);
+    background: transparent;
+    color: alpha(white, 0.45);
     border: none;
-    border-radius: 4px;
+    border-radius: 5px;
     padding: 0px 5px;
     font-size: 14px;
     min-height: 0;
     min-width: 0;
 }}
 .card-remove-btn:hover {{
-    background: alpha(red, 0.65);
+    background: alpha(red, 0.6);
     color: white;
 }}
+
 /* ── List rows ───────────────────────────────────────────────────── */
 .game-list {{ background: transparent; }}
-.list-row {{
-    padding: 4px 4px;
-    min-height: 0;
-    border-bottom: 1px solid alpha({accent}, 0.07);
+.game-list > row {{
+    padding: 2px 0;
+    background-color: transparent;
 }}
-.list-row:hover {{ background: alpha({accent}, 0.05); }}
+.game-list > row:hover {{ background-color: transparent; }}
+.game-list > row:selected {{ background-color: transparent; }}
+.list-row {{
+    min-height: 0;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid alpha({accent}, 0.07);
+    padding-left: 12px;
+    transition: border-color 120ms;
+}}
+.list-row:hover {{
+    border-left-color: {accent};
+    background: linear-gradient(90deg, alpha({accent}, 0.07), transparent);
+}}
 .list-title {{
     font-size: 14px;
-    font-weight: bold;
+    font-weight: 600;
     color: {text};
 }}
 .empty-label {{
     color: {muted};
     font-size: 16px;
     padding: 64px;
+    letter-spacing: 0.3px;
 }}
+
 /* ── Theme picker ────────────────────────────────────────────────── */
 .theme-scroll {{
     border: 1px solid alpha({accent}, 0.2);
-    border-radius: 10px;
+    border-radius: 12px;
     background: {surface2};
 }}
-.theme-list {{
-    background: transparent;
-}}
+.theme-list {{ background: transparent; }}
 .theme-group-header {{
-    font-size: 10px;
-    font-weight: bold;
-    letter-spacing: 1px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 2px;
     color: {muted};
     text-transform: uppercase;
 }}
 .theme-btn {{
     background: transparent;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 2px 0;
 }}
-.theme-btn:hover {{
-    background: alpha({accent}, 0.1);
-}}
+.theme-btn:hover {{ background: alpha({accent}, 0.1); }}
 .theme-name {{
     font-size: 13px;
     color: {text};
+    font-weight: 500;
 }}
 .theme-check {{
     font-size: 13px;
     color: {accent};
-    font-weight: bold;
+    font-weight: 700;
 }}
+
+/* ── Settings ────────────────────────────────────────────────────── */
 .settings-section {{
-    font-size: 12px;
-    font-weight: bold;
+    font-size: 11px;
+    font-weight: 700;
     color: {accent};
-    letter-spacing: 1px;
-    margin-top: 8px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: 10px;
 }}
 .setting-title {{
     font-size: 14px;
-    font-weight: bold;
+    font-weight: 600;
     color: {text};
 }}
 .setting-hint {{
     font-size: 12px;
     color: {muted};
+    font-weight: 400;
 }}
 .settings-drop {{
     background: {surface2};
     color: {text};
     border: 1px solid alpha({accent}, 0.25);
-    border-radius: 8px;
-    padding: 4px 8px;
+    border-radius: 10px;
+    padding: 5px 10px;
     min-width: 200px;
 }}
 .settings-entry {{
     background: {surface2};
     color: {text};
     border: 1px solid alpha({accent}, 0.2);
-    border-radius: 8px;
-    padding: 6px 10px;
+    border-radius: 10px;
+    padding: 7px 12px;
 }}
 .settings-hint {{
     color: {muted};
     font-size: 13px;
 }}
+
 /* ── Add game dialog ─────────────────────────────────────────────── */
-.add-game-dialog {{
-    background-color: {surface};
-}}
+.add-game-dialog {{ background-color: {surface}; }}
 .field-label {{
     font-size: 13px;
-    font-weight: bold;
+    font-weight: 600;
     color: {text};
     margin-bottom: 2px;
 }}
 .browse-btn {{
-    background: alpha({accent}, 0.12);
+    background: alpha({accent}, 0.1);
     color: {accent};
-    border: 1px solid alpha({accent}, 0.2);
-    border-radius: 8px;
-    padding: 6px 12px;
+    border: 1px solid alpha({accent}, 0.22);
+    border-radius: 10px;
+    padding: 6px 14px;
     font-size: 13px;
+    font-weight: 500;
 }}
-.browse-btn:hover {{ background: alpha({accent}, 0.22); }}
+.browse-btn:hover {{ background: alpha({accent}, 0.2); }}
+
 /* ── Inputs ──────────────────────────────────────────────────────── */
 entry {{
     background-color: {surface2};
     color: {text};
-    border: 1px solid alpha({accent}, 0.25);
-    border-radius: 8px;
-    padding: 6px 10px;
+    border: 1px solid alpha({accent}, 0.22);
+    border-radius: 10px;
+    padding: 7px 12px;
     caret-color: {accent};
 }}
 entry:focus {{
@@ -804,7 +878,7 @@ entry:focus {{
     box-shadow: 0 0 0 2px alpha({accent}, 0.12);
 }}
 separator {{
-    background-color: alpha({accent}, 0.1);
+    background: linear-gradient(90deg, transparent, alpha({accent}, 0.15), transparent);
     min-height: 1px;
     min-width: 1px;
 }}
@@ -815,13 +889,153 @@ button.flat {{
 }}
 button.flat:hover {{ color: {text}; }}
 button.suggested-action {{
-    background: {accent};
+    background: linear-gradient(135deg, {accent}, alpha({accent}, 0.8));
     color: {base};
     border: none;
+    border-radius: 10px;
+    padding: 7px 20px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    box-shadow: 0 3px 14px alpha({accent}, 0.3);
+}}
+button.suggested-action:hover {{
+    box-shadow: 0 5px 20px alpha({accent}, 0.45);
+}}
+/* ── DropDown / ComboBox / Popover ───────────────────────────────── */
+dropdown, combobox {{
+    background: {surface2};
+    color: {text};
+    border: 1px solid alpha({accent}, 0.22);
+    border-radius: 10px;
+}}
+dropdown > button, combobox > button {{
+    background: {surface2};
+    color: {text};
+    border: 1px solid alpha({accent}, 0.22);
+    border-radius: 10px;
+    padding: 5px 10px;
+}}
+dropdown > button:hover, combobox > button:hover {{
+    background: alpha({accent}, 0.1);
+    border-color: alpha({accent}, 0.4);
+}}
+popover, .popover {{
+    background-color: {surface};
+    color: {text};
+    border: 1px solid alpha({accent}, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px alpha(black, 0.5);
+}}
+popover > contents, .popover > contents {{
+    background-color: {surface};
+    border-radius: 12px;
+    padding: 4px;
+}}
+listview, .popover listview {{
+    background: transparent;
+    color: {text};
+}}
+listview > row, .popover listview > row {{
+    background: transparent;
+    color: {text};
+    padding: 6px 10px;
     border-radius: 8px;
-    padding: 6px 18px;
-    font-weight: bold;
+}}
+listview > row:hover, .popover listview > row:hover {{
+    background: alpha({accent}, 0.12);
+    color: {text};
+}}
+listview > row:selected, .popover listview > row:selected {{
+    background: alpha({accent}, 0.22);
+    color: {accent};
 }}
 button.suggested-action:hover {{ background: alpha({accent}, 0.82); }}
+/* ── Store tab ───────────────────────────────────────────────────── */
+.store-heading {{
+    font-size: 22px;
+    font-weight: bold;
+    color: {text};
+}}
+.store-subheading {{
+    font-size: 13px;
+    color: {muted};
+    margin-bottom: 8px;
+}}
+.store-card {{
+    background: {surface};
+    border: 1px solid alpha({accent}, 0.12);
+    border-radius: 14px;
+    padding: 20px 16px 16px 16px;
+    min-height: 220px;
+    transition: border-color 120ms;
+}}
+.store-card:hover {{
+    border-color: alpha({accent}, 0.4);
+}}
+.store-emoji {{
+    font-size: 36px;
+    margin-bottom: 4px;
+}}
+.store-name {{
+    font-size: 16px;
+    font-weight: bold;
+    color: {text};
+}}
+.store-desc {{
+    font-size: 12px;
+    color: {muted};
+    margin-top: 4px;
+}}
+.store-open-btn {{
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 13px;
+    padding: 7px 12px;
+    border: none;
+    margin-top: 8px;
+}}
+.store-btn-steam  {{ background: #1b2838; color: #c7d5e0; }}
+.store-btn-steam:hover  {{ background: #2a475e; }}
+.store-btn-epic   {{ background: #2d2d2d; color: white; }}
+.store-btn-epic:hover   {{ background: #444; }}
+.store-btn-gog    {{ background: #7a2c8c; color: white; }}
+.store-btn-gog:hover    {{ background: #9b38b0; }}
+.store-btn-itch   {{ background: #fa5c5c; color: white; }}
+.store-btn-itch:hover   {{ background: #ff7070; }}
+/* ── Per-game settings dialog ────────────────────────────────────── */
+.game-settings-section {{
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: {accent};
+    text-transform: uppercase;
+    margin-top: 10px;
+}}
+.game-settings-label {{
+    color: {muted};
+    font-size: 13px;
+    font-weight: 500;
+}}
+.game-settings-hint {{
+    font-size: 11px;
+    color: {muted};
+}}
+.env-scroll {{
+    border: 1px solid alpha({accent}, 0.18);
+    border-radius: 10px;
+}}
+.dxvk-btn {{
+    background: alpha({accent}, 0.1);
+    color: {text};
+    border: 1px solid alpha({accent}, 0.28);
+    border-radius: 10px;
+    padding: 7px 16px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}}
+.dxvk-btn:hover {{
+    background: alpha({accent}, 0.22);
+    border-color: alpha({accent}, 0.5);
+}}
 "#)
 }

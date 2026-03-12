@@ -3,13 +3,12 @@
 
 use gtk4::prelude::*;
 use gtk4::{
-    Box as GtkBox, Button, DropDown, Entry, Label, ListBox, Orientation,
-    ScrolledWindow, Separator, StringList, Switch,
+    Box as GtkBox, Button, Entry, Label, ListBox, Orientation,
+    ScrolledWindow, Separator, Switch,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
 use crate::config::Config;
-use crate::proton::Runner;
 
 #[allow(dead_code)]
 pub struct SettingsPanel {
@@ -18,7 +17,7 @@ pub struct SettingsPanel {
 }
 
 impl SettingsPanel {
-    pub fn new(cfg: Rc<RefCell<Config>>, runners: Vec<Runner>) -> Self {
+    pub fn new(cfg: Rc<RefCell<Config>>) -> Self {
         let scroll = ScrolledWindow::new();
         scroll.set_hexpand(true);
         scroll.set_vexpand(true);
@@ -157,45 +156,6 @@ impl SettingsPanel {
         }
         let (close_lbl, _) = setting_row("Close to tray", "Minimise to tray instead of quitting");
         root.append(&hrow(close_lbl, close_switch.upcast()));
-        root.append(&Separator::new(Orientation::Horizontal));
-
-        // ── Wine / Proton ────────────────────────────────────────────────────
-        root.append(&section_title("Wine / Proton"));
-
-        if runners.is_empty() {
-            let no_runners = Label::new(Some(
-                "No runners found.\nAdd Proton or Wine builds to ~/.local/share/NovaDream/proton/"
-            ));
-            no_runners.set_wrap(true);
-            no_runners.add_css_class("settings-hint");
-            root.append(&no_runners);
-        } else {
-            let runner_names: Vec<String> = runners.iter().map(|r| r.label()).collect();
-            let runner_strs: Vec<&str>    = runner_names.iter().map(|s| s.as_str()).collect();
-            let runner_list = StringList::new(&runner_strs);
-            let runner_drop = DropDown::new(Some(runner_list), gtk4::Expression::NONE);
-
-            let current_runner = cfg.borrow().default_runner.clone();
-            if let Some(idx) = runner_names.iter().position(|r| *r == current_runner) {
-                runner_drop.set_selected(idx as u32);
-            }
-            runner_drop.add_css_class("settings-drop");
-
-            {
-                let c = cfg.clone();
-                let names = runner_names.clone();
-                runner_drop.connect_selected_notify(move |d: &DropDown| {
-                    if let Some(name) = names.get(d.selected() as usize) {
-                        c.borrow_mut().default_runner = name.clone();
-                        c.borrow().save();
-                    }
-                });
-            }
-
-            let (runner_lbl, _) = setting_row("Default runner", "Used for Windows games unless overridden per game");
-            root.append(&hrow(runner_lbl, runner_drop.upcast()));
-        }
-
         root.append(&Separator::new(Orientation::Horizontal));
 
         // ── Library Paths ────────────────────────────────────────────────────

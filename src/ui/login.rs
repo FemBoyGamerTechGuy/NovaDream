@@ -22,6 +22,7 @@ pub fn show_oauth_dialog(parent: &ApplicationWindow, store_name: &str, auth_url:
         .default_width(520)
         .default_height(260)
         .build();
+    dialog.add_css_class("novadream");
 
     let vbox = GtkBox::new(Orientation::Vertical, 12);
     vbox.set_margin_top(20);
@@ -131,6 +132,7 @@ pub fn show_apikey_dialog(parent: &ApplicationWindow) -> Option<String> {
         .modal(true)
         .default_width(480)
         .build();
+    dialog.add_css_class("novadream");
 
     let vbox = GtkBox::new(Orientation::Vertical, 12);
     vbox.set_margin_top(20);

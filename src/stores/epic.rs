@@ -79,6 +79,7 @@ impl StoreBackend for EpicStore {
                     installed: item["is_installed"].as_bool().unwrap_or(false),
                     play_time: 0,
                     last_played: None,
+                    ..Default::default()
                 });
             }
         }

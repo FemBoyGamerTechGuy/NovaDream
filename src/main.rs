@@ -10,6 +10,7 @@ mod proton;
 mod stores;
 mod tray;
 mod ui;
+mod umu;
 
 use gtk4::prelude::*;
 use gtk4::Application;

@@ -5,11 +5,12 @@ use gtk4::prelude::*;
 use gtk4::{
     Box as GtkBox, FlowBox, ListBox, ScrolledWindow,
     ToggleButton, Orientation, Label, Stack, SearchEntry,
-    SelectionMode,
+    SelectionMode, ApplicationWindow,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
 use crate::game::Game;
+use crate::proton::Runner;
 use super::game_card::{build_grid_card, build_list_row};
 
 #[derive(Clone, Copy, PartialEq)]
@@ -24,6 +25,8 @@ pub struct LibraryView {
     grid_box:     FlowBox,
     list_box:     ListBox,
     stack:        Stack,
+    window:       Rc<RefCell<Option<ApplicationWindow>>>,
+    runners:      Rc<RefCell<Vec<Runner>>>,  // RefCell so we can replace after construction
 }
 
 #[allow(dead_code)]
@@ -97,7 +100,7 @@ impl LibraryView {
         { let s = stack.clone(); let vm = view_mode.clone();
           list_btn.connect_toggled(move |b| { if b.is_active() { *vm.borrow_mut() = ViewMode::List; s.set_visible_child_name("list"); } }); }
 
-        Self { widget: root, games, view_mode, active_store, grid_box, list_box, stack }
+        Self { widget: root, games, view_mode, active_store, grid_box, list_box, stack, window: Rc::new(RefCell::new(None)), runners: Rc::new(RefCell::new(vec![])) }
     }
 
     pub fn set_games(&self, games: Vec<Game>) {
@@ -142,8 +145,18 @@ impl LibraryView {
         self.refresh();
     }
 
+
+
+    pub fn set_runners(&self, runners: Vec<Runner>) {
+        *self.runners.borrow_mut() = runners;
+    }
+
+    pub fn set_window(&self, win: ApplicationWindow) {
+        *self.window.borrow_mut() = Some(win);
+    }
+
     fn refresh(&self) {
-        render_boxes(&self.games, &self.active_store, &self.grid_box, &self.list_box);
+        render_boxes(&self.games, &self.active_store, &self.grid_box, &self.list_box, &self.window, &*self.runners.borrow());
     }
 }
 
@@ -153,6 +166,8 @@ fn render_boxes(
     active_store: &Rc<RefCell<Option<String>>>,
     grid_box:     &FlowBox,
     list_box:     &ListBox,
+    window:       &Rc<RefCell<Option<ApplicationWindow>>>,
+    runners:      &Vec<Runner>,
 ) {
     // Clear
     while let Some(c) = grid_box.first_child() { grid_box.remove(&c); }
@@ -177,33 +192,37 @@ fn render_boxes(
     }
 
     for game in &filtered {
-        let g2 = games.clone();
-        let s2 = active_store.clone();
-        let gb = grid_box.clone();
-        let lb = list_box.clone();
+        let g2  = games.clone();
+        let s2  = active_store.clone();
+        let gb  = grid_box.clone();
+        let lb  = list_box.clone();
+        let win = window.clone();
+        let run: Vec<Runner> = runners.to_vec();
 
         // ── on_remove ────────────────────────────────────────────────────────
         let on_remove_grid = {
             let g2 = g2.clone(); let s2 = s2.clone();
             let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
             move |id: String| {
                 g2.borrow_mut().retain(|g| g.id != id);
                 // Persist the updated local list
                 use crate::game::Store;
                 let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
                 crate::local_library::save_local_games(&local);
-                render_boxes(&g2, &s2, &gb, &lb);
+                render_boxes(&g2, &s2, &gb, &lb, &win, &run);
             }
         };
         let on_remove_list = {
             let g2 = g2.clone(); let s2 = s2.clone();
             let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
             move |id: String| {
                 g2.borrow_mut().retain(|g| g.id != id);
                 use crate::game::Store;
                 let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
                 crate::local_library::save_local_games(&local);
-                render_boxes(&g2, &s2, &gb, &lb);
+                render_boxes(&g2, &s2, &gb, &lb, &win, &run);
             }
         };
 
@@ -211,6 +230,7 @@ fn render_boxes(
         let on_stopped_grid = {
             let g2 = g2.clone(); let s2 = s2.clone();
             let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
             move |id: String, secs: u64| {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -222,12 +242,13 @@ fn render_boxes(
                 use crate::game::Store;
                 let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
                 crate::local_library::save_local_games(&local);
-                render_boxes(&g2, &s2, &gb, &lb);
+                render_boxes(&g2, &s2, &gb, &lb, &win, &run);
             }
         };
         let on_stopped_list = {
             let g2 = g2.clone(); let s2 = s2.clone();
             let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
             move |id: String, secs: u64| {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -239,18 +260,56 @@ fn render_boxes(
                 use crate::game::Store;
                 let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
                 crate::local_library::save_local_games(&local);
-                render_boxes(&g2, &s2, &gb, &lb);
+                render_boxes(&g2, &s2, &gb, &lb, &win, &run);
             }
         };
 
-        let card = build_grid_card(game, on_remove_grid, on_stopped_grid);
+        // ── on_settings ──────────────────────────────────────────────────────
+        let on_settings_grid = {
+            let g2 = g2.clone(); let s2 = s2.clone();
+            let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
+            move |id: String| {
+                let parent = match win.borrow().clone() { Some(w) => w, None => return };
+                let current = match g2.borrow().iter().find(|g| g.id == id).cloned() { Some(g) => g, None => return };
+                if let Some(updated) = crate::ui::game_settings::show_game_settings(&parent, &current, &run) {
+                    if let Some(g) = g2.borrow_mut().iter_mut().find(|g| g.id == id) {
+                        *g = updated;
+                    }
+                    use crate::game::Store;
+                    let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
+                    crate::local_library::save_local_games(&local);
+                    render_boxes(&g2, &s2, &gb, &lb, &win, &run);
+                }
+            }
+        };
+        let on_settings_list = {
+            let g2 = g2.clone(); let s2 = s2.clone();
+            let gb = gb.clone(); let lb = lb.clone();
+            let win = win.clone(); let run = run.clone();
+            move |id: String| {
+                let parent = match win.borrow().clone() { Some(w) => w, None => return };
+                let current = match g2.borrow().iter().find(|g| g.id == id).cloned() { Some(g) => g, None => return };
+                if let Some(updated) = crate::ui::game_settings::show_game_settings(&parent, &current, &run) {
+                    if let Some(g) = g2.borrow_mut().iter_mut().find(|g| g.id == id) {
+                        *g = updated;
+                    }
+                    use crate::game::Store;
+                    let local: Vec<_> = g2.borrow().iter().filter(|g| g.store == Store::Local).cloned().collect();
+                    crate::local_library::save_local_games(&local);
+                    render_boxes(&g2, &s2, &gb, &lb, &win, &run);
+                }
+            }
+        };
+
+        let card = build_grid_card(game, on_remove_grid, on_stopped_grid, on_settings_grid);
         grid_box.insert(&card, -1);
         // GTK wraps inserted widgets in a FlowBoxChild — clear its background
         if let Some(child) = card.parent() {
             child.add_css_class("transparent-child");
         }
 
-        let row = build_list_row(game, on_remove_list, on_stopped_list);
+        let row = build_list_row(game, on_remove_list, on_stopped_list, on_settings_list);
         list_box.append(&row);
     }
 }

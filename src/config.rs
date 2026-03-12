@@ -11,6 +11,41 @@ fn default_gog_path()     -> String { data_dir("gog") }
 fn default_steam_path()   -> String { data_dir("steam") }
 fn default_itch_path()    -> String { data_dir("itch") }
 fn default_local_path()   -> String { data_dir("local") }
+fn default_prefix_base()  -> String { data_dir("prefixes") }
+
+/// Returns the default prefix path for a specific game ID
+/// Sanitise a game title into a safe directory name.
+/// Replaces spaces with underscores, strips characters unsafe in paths.
+pub fn sanitise_title(title: &str) -> String {
+    title
+        .chars()
+        .map(|c| match c {
+            ' ' | '-' => '_',
+            c if c.is_alphanumeric() || c == '_' || c == '.' => c,
+            _ => '_',
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+        .chars()
+        .fold(String::new(), |mut acc, c| {
+            // collapse consecutive underscores
+            if c == '_' && acc.ends_with('_') { acc } else { acc.push(c); acc }
+        })
+}
+
+/// Returns the default prefix path for a game, named after its title.
+pub fn default_prefix_for(title: &str) -> String {
+    let safe = sanitise_title(title);
+    let name = if safe.is_empty() { "prefix".to_string() } else { safe };
+    dirs::data_local_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("NovaDream")
+        .join("prefixes")
+        .join(name)
+        .to_string_lossy()
+        .to_string()
+}
 
 fn data_dir(store: &str) -> String {
     dirs::data_local_dir()
@@ -54,10 +89,37 @@ pub struct Config {
     pub local_library: String,
 
     #[serde(default)]
-    pub default_runner: String, // name of default Wine/Proton runner
+    pub default_runner: String,     // name of default Wine/Proton runner
+
+    #[serde(default = "default_prefix_base")]
+    pub default_wine_prefix: String, // base dir for wine prefixes
 
     #[serde(default)]
-    pub launch_flags: String,   // extra flags passed to all game launches
+    pub launch_flags: String,        // extra flags passed to all game launches
+
+    #[serde(default)]
+    pub env_vars: String,            // KEY=VAL pairs, newline separated
+
+    #[serde(default = "default_true")]
+    pub auto_fetch_cover: bool,
+
+    #[serde(default = "default_true")]
+    pub minimize_on_launch: bool,
+
+    #[serde(default = "default_true")]
+    pub track_playtime: bool,
+
+    #[serde(default)]
+    pub show_playtime_on_card: bool,
+
+    #[serde(default)]
+    pub use_mangohud: bool,              // enable MangoHud for all games by default
+
+    #[serde(default)]
+    pub use_gamemode: bool,              // enable GameMode for all games by default
+
+    #[serde(default)]
+    pub use_wine_wayland: bool,          // use wine-wayland driver (Wayland native) by default
 }
 
 impl Default for Config {
@@ -71,8 +133,17 @@ impl Default for Config {
             steam_library:   default_steam_path(),
             itch_library:    default_itch_path(),
             local_library:   default_local_path(),
-            default_runner:  String::new(),
-            launch_flags:    String::new(),
+            default_runner:       String::new(),
+            default_wine_prefix:  default_prefix_base(),
+            launch_flags:         String::new(),
+            env_vars:             String::new(),
+            auto_fetch_cover:     true,
+            minimize_on_launch:   true,
+            track_playtime:       true,
+            show_playtime_on_card: true,
+            use_mangohud:          false,
+            use_gamemode:          false,
+            use_wine_wayland:      false,
         }
     }
 }

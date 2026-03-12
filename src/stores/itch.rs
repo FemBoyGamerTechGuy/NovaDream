@@ -78,6 +78,7 @@ impl StoreBackend for ItchStore {
                     installed:    false,
                     play_time:    0,
                     last_played:  None,
+                    ..Default::default()
                 });
             }
         }

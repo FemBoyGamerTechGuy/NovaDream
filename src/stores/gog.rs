@@ -69,6 +69,7 @@ impl StoreBackend for GogStore {
                     installed:    item["installed"].as_bool().unwrap_or(false),
                     play_time:    0,
                     last_played:  None,
+                    ..Default::default()
                 });
             }
         }
